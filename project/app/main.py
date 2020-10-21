@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings, Settings
 from pydantic import BaseModel
+from pydantic.dataclasses import dataclass
 
 app = FastAPI()
 
@@ -19,9 +20,18 @@ if get_settings().environment == 'dev':
         allow_headers=['*'],
     )
 
-class Image(BaseModel):
+
+@dataclass
+class BoundingBox:
+    x: str
+    y: str
+    w: str
+    h: str
+
+class ImageData(BaseModel):
     base64: str
+    bbox: BoundingBox
 
 @app.post('/textract')
-async def textract(image: Image):
-    return image
+async def textract(image_data: ImageData):
+    return image_data
