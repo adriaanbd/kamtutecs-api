@@ -30,6 +30,8 @@ RUN apt-get update -y && apt dist-upgrade -y\
 RUN pip3 install --upgrade pip
 COPY ./requirements.txt .
 RUN pip3 install -r requirements.txt
+RUN python3 -m spacy download es_core_news_sm \
+    && python3 -m spacy download en_core_web_sm
 
 # add app
 COPY . .
