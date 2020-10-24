@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.config import get_settings, Settings
 from pydantic import BaseModel
 from pydantic.dataclasses import dataclass
+from typing import List, Tuple
 
 import base64
 import numpy as np
@@ -10,25 +12,6 @@ import pytesseract
 import cv2
 from googletrans import Translator
 import spacy
-
-model_es = spacy.load('es_core_news_sm')
-model_en = spacy.load('en_core_web_sm')
-
-def get_grayscale(image):
-    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-def get_translate(ocr_str, to_lang):
-    translator = Translator()
-
-    clean_str = ''.join(ocr_str.split('\n'))
-    translation = translator.translate(clean_str, dest=to_lang)
-
-    return translation.text
-
-def detect_lang(img_str):
-    translator = Translator()
-    possible_lang = translator.detect(img_str)
-    return possible_lang.lang
 
 ### APP
 app = FastAPI()
@@ -50,13 +33,7 @@ if settings.environment == 'dev':
      allow_headers=['*'],
  )
 
-def write_image_to_png(image64):
-    f_name = 'saved_img.png'
-    with open(f"./{f_name}", "wb") as f:
-        f.write(base64.b64decode(image64))
-
-@dataclass
-class BoundingBox:
+class BoundingBox(BaseModel):
     x: str
     y: str
     w: str
@@ -70,32 +47,106 @@ class OCRText(BaseModel):
     original_text: str
     translation: str
 
-@app.post('/textract')
-def textract(image_data: ImageData):
-    image64 = image_data.base64
-    decoded_data = base64.b64decode(image64)
-    np_data = np.frombuffer(decoded_data,np.uint8)
-    imgBGR = cv2.imdecode(np_data,cv2.IMREAD_UNCHANGED)
-    x, y, w, h = image_data.bbox.x, image_data.bbox.y, image_data.bbox.w, image_data.bbox.h
-    x, y, w, h = round(float(x)), round(float(y)), round(float(w)), round(float(h))
-    resized_img = cv2.resize(imgBGR, (500, 500))
+def get_translation(ocr_str, to_lang):
+    """Traduce el texto utilizando Google Translate"""
+    translator = Translator()
+
+    clean_str = ''.join(ocr_str.split('\n'))
+    translation = translator.translate(clean_str, dest=to_lang)
+
+    return translation.text
+
+def detect_lang(img_str):
+    """Devuelve el lenguage mas factible"""
+    translator = Translator()
+    possible_lang = translator.detect(img_str)
+    return possible_lang.lang
+
+def bbox_values_from_dict(box: BoundingBox) -> List[int]:
+    """Extrae y redondea los valores x, y, w, h del BoundingBox"""
+    box_dict = box.dict()
+    bbox_vals = [ # retorna => [x, y, w, h]
+        round(float(val))  # "3.3" o "3" => 3
+        for val in box_dict.values()  # "val" en { "key": "val" }
+    ]
+    return bbox_vals
+
+def b64_to_opencv_img(image_b64: str):
+    """
+    Devuelve un objeto de imagen OpenCV de
+    una imagen representada en cadena base64
+    """
+    decoded_data = base64.b64decode(image_b64)
+    np_data = np.frombuffer(decoded_data, np.uint8)
+    image_bgr = cv2.imdecode(np_data, cv2.IMREAD_UNCHANGED)
+    return image_bgr
+
+def resize_and_crop(img_bgr, box: BoundingBox, dimensions: Tuple[int]=None):
+    """
+    Reajusta la imagen al tamaño establecido en la interfaz de usuario
+    y extrae el subsegmento de la imagen señalado por el usuario
+    """
+    if dimensions is None:
+        dimensions = (500, 500)
+    resized_img = cv2.resize(img_bgr, dimensions)
+    x, y, w, h = bbox_values_from_dict(box)
     cropped_img = resized_img[y: y + h, x: x + w]
-    grey_img = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)
-    config = f'--oem 3 --psm 6'
-    ocr_text = pytesseract.image_to_string(grey_img, config=config)
-    language = detect_lang(ocr_text)
-    translation = get_translate(ocr_text, "es")
+    return cropped_img
 
-    nlp_es = model_es(translation)
-    nlp_resp = []
-    for word in nlp_es:
-        nlp_resp.append((word.text, word.pos_))
+def preprocess_img(image_bgr, box, dimensions: Tuple[int]=None):
+    """Preprocesa la imagen para mejorar el resultado de tesseract"""
+    cropped_image = resize_and_crop(image_bgr, box, dimensions)
+    grey_img = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+    return grey_img
 
-    return {
-        "ocr_text": ocr_text,
-        "input_text": language,
-        "translation": translation,
-        "bbox": image_data.bbox,
-        "nlp": nlp_resp
+def ocr(image, box, oem=3, psm=6) -> str:
+    """
+    Extrae el texto de la imagen dentro de los limites
+    señalados por el usuario a traves del BoundingBox
+    """
+    config = f'--oem {oem} --psm {psm}'
+    preprocessed_img = preprocess_img(image, box)
+    ocr_text_raw = pytesseract.image_to_string(preprocessed_img, config=config)
+    ocr_text = ' '.join(ocr_text_raw.split('\n'))
+    return ocr_text
+
+def translate(text: str, to_lang="es"):
+    """Traduce el texto de un idioma al otro"""
+    language = detect_lang(text)
+    translation = get_translation(text, to_lang)
+    return translation
+
+def load_spacy_model(language: str):
+    """Carga y devuelve el modelo correspondiente de Spacy"""
+    models = {
+        'es': 'es_core_news_sm',
+        'en': 'en_core_web_sm',
+        'ja': 'ja_core_news_sm'
     }
+    model_name = models.get(language)
+    assert model_name is not None, f'Model for {language} missing'
+    return spacy.load(model_name)
 
+def analyze_text(text: str, language="es"):
+    """Analisis de texto con NLP"""
+    nlp_model = load_spacy_model(language)
+    nlp = nlp_model(text)
+    nlp_response = [
+        (word.text, word.pos_)
+        for word in nlp
+    ]
+    return nlp_response
+
+@app.post('/textract')
+async def textract(image_data: ImageData):
+    image_b64 = image_data.base64
+    image_bgr = b64_to_opencv_img(image_b64)
+    ocr_text = ocr(image_bgr, image_data.bbox, psm=11)
+    translation = translate(ocr_text)
+    nlp_analysis = analyze_text(translation)
+    data = {
+        "ocr_text": ocr_text,
+        "translation": translation,
+        "nlp": nlp_analysis
+    }
+    return JSONResponse(content=data)
