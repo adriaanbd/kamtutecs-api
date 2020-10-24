@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import get_settings, Settings
@@ -139,6 +139,10 @@ def analyze_text(text: str, language="es"):
 
 @app.post('/textract')
 async def textract(image_data: ImageData):
+    """
+    API Endpoint para la extracción de texto via OCR,
+    procesamiento y analisis.
+    """
     image_b64 = image_data.base64
     image_bgr = b64_to_opencv_img(image_b64)
     ocr_text = ocr(image_bgr, image_data.bbox, psm=11)

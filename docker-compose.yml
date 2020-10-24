@@ -11,4 +11,3 @@ services:
     environment:
       - ENVIRONMENT=dev
       - TESTING=0
-    container_name: kamtutecs
