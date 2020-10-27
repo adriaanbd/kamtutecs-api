@@ -104,8 +104,8 @@ def ocr(image, box, oem=3, psm=6) -> str:
     Extrae el texto de la imagen dentro de los limites
     señalados por el usuario a traves del BoundingBox
     """
-    config = f'--oem {oem} --psm {psm}'
     preprocessed_img = preprocess_img(image, box)
+    config = f'--oem {oem} --psm {psm}'
     ocr_text_raw = pytesseract.image_to_string(preprocessed_img, config=config)
     ocr_text = ' '.join(ocr_text_raw.split('\n'))
     return ocr_text
