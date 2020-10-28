@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings, Settings
 from pydantic import BaseModel
 from pydantic.dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import base64
 import numpy as np
@@ -99,7 +99,7 @@ def preprocess_img(image_bgr, box, dimensions: Tuple[int]=None):
     grey_img = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
     return grey_img
 
-def ocr(image, box, oem=3, psm=6) -> str:
+def ocr(image, box, oem, psm) -> str:
     """
     Extrae el texto de la imagen dentro de los limites
     señalados por el usuario a traves del BoundingBox
@@ -138,14 +138,20 @@ def analyze_text(text: str, language="es"):
     return nlp_response
 
 @app.post('/textract')
-async def textract(image_data: ImageData):
+async def textract(image_data: ImageData, oem: Optional[int] = 3, psm: Optional[int]= 11):
     """
     API Endpoint para la extracción de texto via OCR,
     procesamiento y analisis.
+
+    image_data -- info about image being processed
+    oem -- ocrenginemode 
+    psm -- pagesegmode
+    
+    You can add parameters in querystring: ...?oem=4&psm=8
     """
     image_b64 = image_data.base64
     image_bgr = b64_to_opencv_img(image_b64)
-    ocr_text = ocr(image_bgr, image_data.bbox)
+    ocr_text = ocr(image_bgr, image_data.bbox,oem, psm)
     translation = translate(ocr_text)
     nlp_analysis = analyze_text(translation)
     data = {
