@@ -145,7 +145,7 @@ async def textract(image_data: ImageData):
     """
     image_b64 = image_data.base64
     image_bgr = b64_to_opencv_img(image_b64)
-    ocr_text = ocr(image_bgr, image_data.bbox, psm=11)
+    ocr_text = ocr(image_bgr, image_data.bbox)
     translation = translate(ocr_text)
     nlp_analysis = analyze_text(translation)
     data = {
