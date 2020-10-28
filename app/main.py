@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import get_settings, Settings
@@ -138,7 +138,7 @@ def analyze_text(text: str, language="es"):
     return nlp_response
 
 @app.post('/textract')
-async def textract(image_data: ImageData, oem: Optional[int] = 3, psm: Optional[int]= 11):
+async def textract(image_data: ImageData, oem: Optional[int] = Form(3), psm: Optional[int]= Form(11)):
     """
     API Endpoint para la extracción de texto via OCR,
     procesamiento y analisis.
@@ -146,8 +146,6 @@ async def textract(image_data: ImageData, oem: Optional[int] = 3, psm: Optional[
     image_data -- info about image being processed
     oem -- ocrenginemode 
     psm -- pagesegmode
-    
-    You can add parameters in querystring: ...?oem=4&psm=8
     """
     image_b64 = image_data.base64
     image_bgr = b64_to_opencv_img(image_b64)
