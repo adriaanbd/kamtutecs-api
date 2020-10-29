@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from app.config import get_settings, Settings
 from pydantic import BaseModel
 from pydantic.dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import base64
 import numpy as np
@@ -18,20 +18,20 @@ app = FastAPI()
 
 settings = get_settings()
 if settings.environment == 'dev':
- origins = [
+    origins = [
      'http://localhost',
      'http://localhost:3000',
      'https://locahost:3000',
      'https://localhost:8000',
      'http://localhost:8000',
- ]
- app.add_middleware(
-     CORSMiddleware,
-     allow_origins=origins,
-     allow_credentials=True,
-     allow_methods=['*'],
-     allow_headers=['*'],
- )
+    ]
+    app.add_middleware(
+         CORSMiddleware,
+         allow_origins=origins,
+         allow_credentials=True,
+         allow_methods=['*'],
+         allow_headers=['*'],
+    )
 
 class BoundingBox(BaseModel):
     x: str
@@ -42,6 +42,8 @@ class BoundingBox(BaseModel):
 class ImageData(BaseModel):
     base64: str
     bbox: BoundingBox
+    oem: Optional[int] = 3
+    psm: Optional[int] = 11
 
 class OCRText(BaseModel):
     original_text: str
@@ -99,15 +101,20 @@ def preprocess_img(image_bgr, box, dimensions: Tuple[int]=None):
     grey_img = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
     return grey_img
 
-def ocr(image, box, oem=3, psm=6) -> str:
+def ocr(image, box, oem, psm) -> str:
     """
     Extrae el texto de la imagen dentro de los limites
     señalados por el usuario a traves del BoundingBox
     """
-    preprocessed_img = preprocess_img(image, box)
-    config = f'--oem {oem} --psm {psm}'
-    ocr_text_raw = pytesseract.image_to_string(preprocessed_img, config=config)
-    ocr_text = ' '.join(ocr_text_raw.split('\n'))
+    ocr_text =""
+    try:
+        preprocessed_img = preprocess_img(image, box)
+        config = f'--oem {oem} --psm {psm}'
+        ocr_text_raw = pytesseract.image_to_string(preprocessed_img, config=config)
+        ocr_text = ' '.join(ocr_text_raw.split('\n'))
+    except Exception as e:
+        ocr_text = str(e)
+
     return ocr_text
 
 def translate(text: str, to_lang="es"):
@@ -142,10 +149,12 @@ async def textract(image_data: ImageData):
     """
     API Endpoint para la extracción de texto via OCR,
     procesamiento y analisis.
+
+    image_data -- info about image being processed
     """
     image_b64 = image_data.base64
     image_bgr = b64_to_opencv_img(image_b64)
-    ocr_text = ocr(image_bgr, image_data.bbox)
+    ocr_text = ocr(image_bgr, image_data.bbox, image_data.oem, image_data.psm)
     translation = translate(ocr_text)
     nlp_analysis = analyze_text(translation)
     data = {
